@@ -104,9 +104,7 @@
 		  (with-current-buffer name
 		    (let ((inhibit-read-only t)) (erase-buffer)))))
 	 (process-connection-type nil)
-	 (proc  (start-process
-		 name name ;; both the process and buffer name
-		 (executable-find "sudo") "-S" mailq-executable)))
+	 (proc  (start-process name name mailq-executable)))
     (set-process-filter proc 'mailq-filter)
     (set-process-sentinel proc 'mailq-sentinel)))
 

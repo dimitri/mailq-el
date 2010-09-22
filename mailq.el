@@ -27,8 +27,8 @@
 
 (defun mailq-propertize ()
   "Propertize current buffer, expected to contain output from the `mailq' command."
-  (save-excursion
-    (let ((inhibit-read-only t))
+  (let ((inhibit-read-only t))
+    (save-excursion
       (goto-char (point-min))
       (while (not (eobp))
 	(let ((bol (line-beginning-position))
@@ -73,15 +73,16 @@
       (setq mailq-filter-filter-pos (point-min)))
 
     (save-excursion
-      (goto-char (point-max))
-      (insert string)
-      ;; redirect the subprocess sudo prompt to the user face, and answer it
-      (goto-char mailq-filter-filter-pos)
-      (while (re-search-forward "password" nil t)
-	(let* ((prompt (thing-at-point 'line))
-	       (pass   (read-passwd prompt)))
-	  (process-send-string proc (concat pass "\n"))))
-      (setq mailq-filter-filter-pos (point-max)))))
+      (let ((inhibit-read-only t))
+	(goto-char (point-max))
+	(insert string)
+	;; redirect the subprocess sudo prompt to the user face, and answer it
+	(goto-char mailq-filter-filter-pos)
+	(while (re-search-forward "password" nil t)
+	  (let* ((prompt (thing-at-point 'line))
+		 (pass   (read-passwd prompt)))
+	    (process-send-string proc (concat pass "\n"))))
+	(setq mailq-filter-filter-pos (point-max))))))
 
 (defun mailq-sentinel (proc change)
   "Switch to the *mailq* buffer once the command is done"
@@ -121,12 +122,12 @@
   (let* ((option (cond ((eq 'flush option) "-q")
 		       ((eq 'id option)    "-qI")
 		       ((eq 'site option)  "-qR")))
-	 (name  (format "*sendmail %s*" option))
+	 (optarg (mapconcat 'identity (cons option (list arg)) " "))
+	 (name   (format "*sendmail %s*" optarg))
 	 (process-connection-type nil)
 	 (proc
 	  (start-process name name ;; both the process and buffer name
-			 (executable-find "sudo") "-S" 
-			 mailq-sendmail-executable (cons option (list arg)))))
+			 (executable-find "sudo") "-S" mailq-sendmail-executable optarg)))
     ;; filter for sudo
     (set-process-filter proc 'mailq-filter)
     (set-process-sentinel proc 'mailq-sendmail-sentinel)))
@@ -204,6 +205,7 @@
   "A major mode for postqueue interaction."
   :group 'comm
   (mailq-propertize)
+  (mailq-mode-next-id)
   (setq buffer-read-only t)
   (setq buffer-undo-list t))
 

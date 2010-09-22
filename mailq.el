@@ -122,12 +122,17 @@
   (let* ((option (cond ((eq 'flush option) "-q")
 		       ((eq 'id option)    "-qI")
 		       ((eq 'site option)  "-qR")))
-	 (optarg (mapconcat 'identity (cons option (list arg)) " "))
-	 (name   (format "*sendmail %s*" optarg))
+	 (name   (format "*sendmail %s*" option))
 	 (process-connection-type nil)
-	 (proc
-	  (start-process name name ;; both the process and buffer name
-			 (executable-find "sudo") "-S" mailq-sendmail-executable optarg)))
+	 (start-process-args-1
+	  `(,name ,name ;; both the buffer and the process names
+		  ,(executable-find "sudo") "-S" 
+		  ,mailq-sendmail-executable ,option))
+	 (start-process-args (if arg 
+				 (append start-process-args-1 (list arg))
+			       start-process-args-1))
+	 (dummy (message "%s" (mapconcat 'identity (cddr start-process-args) " ")))
+	 (proc  (apply 'start-process start-process-args)))
     ;; filter for sudo
     (set-process-filter proc 'mailq-filter)
     (set-process-sentinel proc 'mailq-sendmail-sentinel)))

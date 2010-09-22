@@ -11,6 +11,8 @@
 ;;
 ;; This file is NOT part of GNU Emacs.
 
+(require 'simple) ;; kill-whole-line
+
 (defvar mailq-executable
   (if (file-executable-p "/sw/bin/mailq")
       "/sw/bin/mailq"
@@ -23,56 +25,63 @@
     (executable-find "sendmail"))
   "Where to find the `sendmail' utility")
 
+(defun mailq-propertize ()
+  "Propertize current buffer, expected to contain output from the `mailq' command."
+  (save-excursion
+    (let ((inhibit-read-only t))
+      (goto-char (point-min))
+      (while (not (eobp))
+	(let ((bol (line-beginning-position))
+	      (eol (line-end-position)))
+	  (cond
+	   ((looking-at "password")
+	    (kill-whole-line))
+
+	   ((looking-at "-Queue ID")
+	    (put-text-property bol eol 'face font-lock-string-face))
+
+	   ((looking-at "^--")
+	    (put-text-property bol eol 'face font-lock-comment-face))
+
+	   ((looking-at " *(.*)") 
+	    (put-text-property bol eol 'face font-lock-warning-face))
+
+	   ((looking-at "[0-9A-F]+")
+	    (save-excursion
+	      (let* ((end-of-id   (1- (re-search-forward "[*! ]")))
+		     (queue-id    (buffer-substring-no-properties bol end-of-id))
+		     (end-of-item (1- (re-search-forward "^$")))
+		     (dummy       (goto-char bol))
+		     (domain-pt   (re-search-forward "@\\([^ ]+\\)$" end-of-item))
+		     (domain      (match-string 1))
+		     (b-o-domain  (match-beginning 1))
+		     (e-o-domain  (match-end 1))
+		     (b-o-lpart   (re-search-backward " " (line-beginning-position))))
+		(put-text-property bol eol 'id queue-id)
+		(put-text-property bol eol 'site domain)
+		(put-text-property bol end-of-id 'face font-lock-constant-face)
+		(put-text-property b-o-domain e-o-domain 'face font-lock-keyword-face)
+		(put-text-property b-o-lpart b-o-domain 'face font-lock-preprocessor-face))))))
+
+	(forward-line)))))
+
 (defun mailq-filter (proc string)
   "Filter for `mailq', with sudo password prompting support"
-  (message "mailq-filter: %S" string)
   (with-current-buffer (process-buffer proc)
+    (unless (boundp 'mailq-filter-filter-pos)
+      (make-local-variable 'mailq-filter-filter-pos)
+      (setq mailq-filter-filter-pos (point-min)))
+
     (save-excursion
-      ;; redirect the subprocess sudo prompt to the user face
-      (when (string-match "password" string)
-	(process-send-string proc (concat (read-passwd string) "\n")))
-
-      (let ((inhibit-read-only t))
-	(goto-char (point-max))
-	(dolist (line (split-string string "\n"))
-	  (cond ((string-match "^[ 	\n]*$" line) t)
-
-		((string-match "password" line) t)
-
-		((string-match "Mail queue is empty" line) 
-		 ;; the sentinel will need to find this
-		 (insert line))
-
-		((string-match "Queue ID" line) 
-		 (insert (propertize line 'face font-lock-string-face) "\n"))
-
-		((string-match "^--" line)
-		 (insert (propertize line 'face font-lock-comment-face) "\n"))
-
-		((string-match "^ " line)
-		 (insert (propertize line 'face font-lock-string-face) "\n"))
-
-		(t
-		 ;; first line of message, queue-id size, time, sender
-		 (let* ((split  (split-string line))
-			(id     (car split))
-			(size   (cadr split))
-			(mail   (car (last split)))
-			(lpart  (car (split-string mail "@")))
-			(domain (cadr (split-string mail "@")))
-			(time   (mapconcat 
-				 'identity (cddr (butlast split)) " ")))
-		   (insert
-		    (propertize id
-				'face font-lock-constant-face
-				'id id
-				'site domain) " "
-				(format "%8s" size) " "
-				time " "
-				(propertize lpart  
-					    'face font-lock-preprocessor-face) "@"
-					    (propertize domain
-							'face font-lock-keyword-face) "\n")))))))))
+      (goto-char (point-max))
+      (insert string)
+      ;; redirect the subprocess sudo prompt to the user face, and answer it
+      (goto-char mailq-filter-filter-pos)
+      (while (re-search-forward "password" nil t)
+	(let* ((prompt (thing-at-point 'line))
+	       (pass   (read-passwd prompt)))
+	  (process-send-string proc (concat pass "\n"))))
+      (setq mailq-filter-filter-pos (point-max)))))
 
 (defun mailq-sentinel (proc change)
   "Switch to the *mailq* buffer once the command is done"
@@ -194,6 +203,7 @@
 (define-derived-mode mailq-mode fundamental-mode "MailQ"
   "A major mode for postqueue interaction."
   :group 'comm
+  (mailq-propertize)
   (setq buffer-read-only t)
   (setq buffer-undo-list t))
 

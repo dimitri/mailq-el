@@ -4,14 +4,18 @@
 ;;
 ;; Author: Dimitri Fontaine <dim@tapoueh.org>
 ;; URL: http://www.emacswiki.org/emacs/el-get.el
-;; Version: 0.9
+;; Version: 0.10
 ;; Created: 2010-06-17
-;; Keywords: emacs package elisp install elpa git git-svn bzr cvs apt-get fink http http-tar emacswiki
+;; Keywords: emacs mailq mode-line
 ;; Licence: WTFPL, grab your copy here: http://sam.zoy.org/wtfpl/
 ;;
 ;; This file is NOT part of GNU Emacs.
 
 (require 'simple) ;; kill-whole-line
+
+(defgroup mailq nil
+  "Run mailq."
+  :group 'comm)
 
 (defvar mailq-executable
   (if (file-executable-p "/sw/bin/mailq")
@@ -24,6 +28,64 @@
       "/sw/sbin/sendmail"
     (executable-find "sendmail"))
   "Where to find the `sendmail' utility")
+
+(defvar mailq-modeline-display nil)
+
+(defvar mailq-update-timer nil
+  "The timer used to update `mailq-mode-string'.")
+
+(defcustom mailq-symbol-empty "✔"
+  "symbol to display in the mode line for empty mailq"
+  :group 'mailq)
+
+(defcustom mailq-symbol-not-empty "✘"
+  "symbol to display in the mode line for not empty mailq"
+  :group 'mailq)
+
+(defvar mailq-mode-line-string nil
+  "symbol displayed in the mode-line")
+
+(defcustom mailq-enable-mode-line-p '(member major-mode
+					     '(gnus-group-mode
+					       gnus-summary-mode))
+  "Whether enable mailq mode line status display.
+This form is evaluated and its return value determines if the
+mailq status should be displayed in the mode line."
+  :group 'mailq)
+
+(defun mailq-mode-line ()
+  "Return a string to display in mode line."
+  (when (eval mailq-enable-mode-line-p)
+    mailq-mode-line-string))
+
+(defun mailq-update-modeline ()
+  "Update `mailq-mode-line-string"
+  (interactive)
+  (let* ((queue (process-lines mailq-executable))
+	 (empty (string= (car queue) "Mail queue is empty")))
+    (unless empty
+      (message "mailq-update-modeline: Mail queue is not empty"))
+    (setq mailq-mode-line-string
+	  (format "Q %s"
+		  (if empty mailq-symbol-empty mailq-symbol-not-empty)))))
+
+(defun mailq-modeline-display ()
+  "Toggle display of the mailq status (empty or not) in the modeline"
+  (interactive)
+
+  ;; always cancel the timer
+  (when mailq-update-timer
+    (cancel-timer mailq-update-timer)
+    (setq mailq-update-timer nil))
+
+  ;; toggle the setting
+  (setq mailq-modeline-display (not mailq-modeline-display))
+
+  (when mailq-modeline-display
+    (setq mailq-update-timer
+	  (run-at-time nil 60 'mailq-update-modeline)))
+
+  (add-to-list 'global-mode-string '(:eval (mailq-mode-line)) t))
 
 (defun mailq-propertize ()
   "Propertize current buffer, expected to contain output from the `mailq' command."

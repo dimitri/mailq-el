@@ -275,3 +275,5 @@ mailq status should be displayed in the mode line."
   (setq buffer-undo-list t))
 
 (provide 'mailq)
+
+;;; mailq.el ends here
